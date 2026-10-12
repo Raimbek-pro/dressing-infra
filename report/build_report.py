@@ -111,9 +111,9 @@ p("A third VM becomes useful later only for a separate job: a bastion host (if S
 
 doc.add_heading("Why PostgreSQL", level=2)
 bullets([
-    "The data is relational: users, follows, designs, collectible editions and gift transfers "
-    "reference each other and need foreign keys and transactions. A gift must move from one "
-    "owner to another atomically, so a collectible is never owned twice or lost.",
+    "The data is relational: users own designs, and later follow each other and exchange "
+    "gifts. Foreign keys and transactions keep that consistent (a gift moves from one owner "
+    "to another in one step, never duplicated or lost).",
     "JSONB stores the editable canvas (garments, pieces, fabric per piece) without a rigid "
     "schema, while everything around it stays relational and indexed.",
     "Role-based access is built in and maps onto the Linux role model (NOLOGIN group roles, "
@@ -147,7 +147,7 @@ table(["Google Cloud principal", "Roles", "Why"], [
     ["sa-dressing-app", "logging.logWriter, monitoring.metricWriter", "Identity of the app VM."],
     ["sa-dressing-db", "logging.logWriter, monitoring.metricWriter", "Identity of the DB VM."],
 ])
-p("Script: gcp/01_create_infra.sh, gcp/02_project_iam.sh.")
+p("Script: gcp/01_create_infra.sh. The people roles above are shown as the target setup for a team.")
 screenshot("VM instances list showing dressing-app (with external IP) and dressing-db (no external IP)")
 screenshot("Firewall rules of dressing-vpc")
 
@@ -158,16 +158,16 @@ p("Linux roles. Service accounts have no password and the shell /usr/sbin/nologi
 table(["Role (group / user)", "Description", "Permissions", "Superuser permissions (sudo)"], [
     ["sysadmins / sysadmin1", "System administrator", "Own home; member of adm (reads /var/log)",
      "ALL, with own password every time (5-minute cache)"],
-    ["devops / devops1", "Deploys and operates the backend", "Write /srv/releases (setgid group devops)",
-     "systemctl start|stop|restart|status dressing-api; reload nginx, nginx -t; dressing-deploy"],
+    ["devops / devops1", "Operates the backend and web server", "Own home; member of developers",
+     "systemctl start|stop|restart|status dressing-api; systemctl reload nginx; nginx -t"],
     ["developers / developer1", "Backend developer", "Own home only", "systemctl status dressing-api"],
-    ["dba / dba1", "Database administrator", "Read /var/backups/postgresql; DB role dba1 (schema owner via peer auth)",
-     "psql, pg_dump, pg_dumpall, pg_restore as user postgres; reload/restart/status postgresql"],
-    ["auditors / auditor1", "Security auditor, read-only", "systemd-journal + adm groups (all logs); read /var/log/dressing",
-     "NOPASSWD, NOEXEC: cat /var/log/sudo.log, sudo -l -U <user>, apt list --upgradable"],
+    ["dba / dba1", "Database administrator", "DB role dba1 (schema owner, peer auth)",
+     "psql, pg_dump as user postgres; restart/status postgresql"],
+    ["auditors / auditor1", "Security auditor, read-only", "systemd-journal + adm groups (reads all logs)",
+     "NOPASSWD, NOEXEC: cat /var/log/sudo.log, sudo -l -U <user>"],
     ["automation / automation_bot", "CI/CD and Ansible; SSH key only, no password",
-     "Member of devops (can upload releases)", "NOPASSWD: dressing-api service control, dressing-deploy"],
-    ["dressing (service)", "Runs the backend API", "Read /opt/dressing, /etc/dressing; write only /var/lib/dressing, /var/log/dressing",
+     "Member of devops", "NOPASSWD: systemctl start|stop|restart|status dressing-api"],
+    ["dressing (service)", "Runs the backend API", "Read /opt/dressing, /etc/dressing; write only /var/lib/dressing",
      "None; also blocked by systemd sandboxing (NoNewPrivileges, ProtectSystem=strict)"],
     ["postgres (service)", "Runs PostgreSQL (created by the package)", "Owns /var/lib/postgresql (0700) and /etc/postgresql",
      "None. DB superuser inside PostgreSQL, reachable only through the local socket (peer auth)"],
@@ -201,17 +201,13 @@ table(["Path", "Owner:group", "Mode", "Reason"], [
     ["/opt/dressing", "root:dressing", "0750", "Code: the service can run it but not modify itself"],
     ["/etc/dressing/dressing.env", "root:dressing", "0640", "DATABASE_URL secret: only root writes, only the service reads"],
     ["/var/lib/dressing", "dressing:dressing", "0750", "The only directory the service may write"],
-    ["/srv/releases", "root:devops", "2775", "DevOps upload releases; setgid keeps the group on new files"],
-    ["/var/log/dressing", "dressing:auditors", "2750", "Application logs: auditors read, never write"],
-    ["/var/backups/postgresql", "postgres:dba", "2750", "Database dumps, readable by DBAs"],
     ["/etc/sudoers.d/10-dressing", "root:root", "0440", "Sudo policy, validated with visudo -c before install"],
     ["/var/log/sudo.log", "root:root", "0600", "Every sudo call; readable by auditors only through sudo"],
 ])
 p("The sudo policy is placed in /etc/sudoers.d instead of editing /etc/sudoers, and is "
-  "checked with visudo before it is installed. Command aliases keep it readable. DevOps "
-  "and the bot never get a root shell. Their only way to change the code is "
-  "/usr/local/bin/dressing-deploy, a root-owned script that accepts only release archives "
-  "with a strict name pattern.")
+  "checked with visudo before it is installed. Command aliases keep it readable. Every "
+  "group gets only the exact commands its job needs; DevOps and the bot never get a root "
+  "shell, and the bot (no password) can run only the app's service commands.")
 file("linux/sudoers.d/10-dressing")
 file("linux/20_permissions.sh")
 screenshot("ls -ld of the directories above")
@@ -264,16 +260,12 @@ screenshot("curl /health from the laptop")
 
 # ---------------------------------------------------------------- future
 doc.add_heading("7. How the infrastructure grows with the app", level=1)
-p("The schema (db/schema.sql) already covers the planned features:")
+p("The schema (db/schema.sql) starts with users and their designs. Planned next:")
 bullets([
-    "Community tab: users, follows, designs with visibility private/friends/public, "
-    "and a feed index on (visibility, created_at).",
-    "Gifts as collectibles: a design can be issued as a numbered edition; each item has one "
-    "owner, and gift_transfers keeps the history of every hand-over.",
-    "AR wardrobe: each design stores a model_key pointing to a USDZ file in object storage. "
-    "The phone downloads it and fits it to the body with ARKit body tracking. Turning a 2D "
-    "design into a 3D garment is a background job, which is where a worker VM or Cloud Run "
-    "job would be added.",
+    "Community tab: following friends and a feed of public designs.",
+    "Gifts as collectible items that move between users, recorded as transactions.",
+    "AR wardrobe: 3D versions of designs stored in Cloud Storage and fitted to the body on "
+    "the phone. Generating the 3D models is the first job that would justify a third machine.",
 ])
 p("Scaling path, without redesigning: Cloud Storage plus Cloud CDN for photos and models; a "
   "PostgreSQL streaming replica (wal_level = replica is already set) or a move to Cloud SQL; "
