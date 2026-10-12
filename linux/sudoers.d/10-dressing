@@ -1,0 +1,44 @@
+# /etc/sudoers.d/10-dressing  -- installed by 20_permissions.sh, always validated with visudo -c
+# Least privilege: each group gets exactly the commands its job needs.
+
+Defaults    env_reset
+Defaults    !visiblepw
+Defaults    use_pty
+Defaults    secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Defaults    logfile="/var/log/sudo.log"
+Defaults    timestamp_timeout=5
+
+# ---- command aliases ----------------------------------------------------------------
+Cmnd_Alias  APP_SVC   = /usr/bin/systemctl start dressing-api, \
+                        /usr/bin/systemctl stop dressing-api, \
+                        /usr/bin/systemctl restart dressing-api, \
+                        /usr/bin/systemctl status dressing-api
+Cmnd_Alias  WEB_SVC   = /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t
+Cmnd_Alias  PG_SVC    = /usr/bin/systemctl reload postgresql, \
+                        /usr/bin/systemctl restart postgresql, \
+                        /usr/bin/systemctl status postgresql
+Cmnd_Alias  PG_TOOLS  = /usr/bin/psql, /usr/bin/pg_dump, /usr/bin/pg_dumpall, /usr/bin/pg_restore
+Cmnd_Alias  DEPLOY    = /usr/local/bin/dressing-deploy
+Cmnd_Alias  AUDIT     = /usr/bin/cat /var/log/sudo.log, /usr/bin/sudo -l -U *
+Cmnd_Alias  PKG_READ  = /usr/bin/apt list --upgradable
+
+# ---- rules ---------------------------------------------------------------------------
+# Administrators: everything, but with their own password every time (5 min cache).
+%sysadmins    ALL=(ALL:ALL) ALL
+
+# DevOps: deploy and operate the app and web server, no shell as root.
+%devops       ALL=(root) APP_SVC, WEB_SVC, DEPLOY
+
+# Automation bot: same as devops minus nginx, no password (it has none; SSH key only).
+automation_bot ALL=(root) NOPASSWD: APP_SVC, DEPLOY
+
+# Developers: may only look at the service.
+%developers   ALL=(root) /usr/bin/systemctl status dressing-api
+
+# DBA: PostgreSQL tools as the postgres user, service control as root. Not a root shell.
+%dba          ALL=(postgres) PG_TOOLS
+%dba          ALL=(root) PG_SVC
+
+# Auditors: read sudo log + inspect anyone's sudo rights. Journal access comes from the
+# systemd-journal group, so no sudo is needed for logs. NOEXEC blocks shell escapes.
+%auditors     ALL=(root) NOPASSWD: NOEXEC: AUDIT, PKG_READ

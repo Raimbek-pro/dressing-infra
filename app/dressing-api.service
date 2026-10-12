@@ -1,0 +1,33 @@
+# /etc/systemd/system/dressing-api.service
+[Unit]
+Description=Dressing backend API
+Documentation=https://github.com/<you>/dressing-infra
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=dressing
+Group=dressing
+EnvironmentFile=/etc/dressing/dressing.env
+WorkingDirectory=/opt/dressing/current
+ExecStart=/usr/bin/python3 /opt/dressing/current/dressing_api.py
+Restart=on-failure
+RestartSec=3
+
+# Sandboxing: the service can write only its own state dir and log dir.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/dressing /var/log/dressing
+CapabilityBoundingSet=
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
