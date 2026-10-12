@@ -34,8 +34,9 @@ if [[ ! -f "$SECRET" ]]; then
 fi
 APP_PW="$(sed -E 's|.*dressing_app:([^@]+)@.*|\1|' "$SECRET")"
 
-sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_pw="$APP_PW" -f "$HERE/roles.sql"
-sudo -u postgres psql -v ON_ERROR_STOP=1 -d dressing -f "$HERE/schema.sql"
+# SQL is fed on stdin: root reads the files, so they may live in a private home directory.
+sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_pw="$APP_PW" <"$HERE/roles.sql"
+sudo -u postgres psql -v ON_ERROR_STOP=1 -d dressing <"$HERE/schema.sql"
 
 echo "== listening";  ss -ltnp | grep 5432
 echo "== roles";      sudo -u postgres psql -c '\du'
