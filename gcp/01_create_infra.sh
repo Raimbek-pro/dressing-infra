@@ -13,41 +13,59 @@ NETWORK="dressing-vpc"
 SUBNET="dressing-subnet"
 PROJECT="$(gcloud config get-value project)"
 
+# Re-runnable: each step is skipped when its resource already exists.
+have() { "$@" >/dev/null 2>&1; }
+
 echo "== APIs"
 gcloud services enable compute.googleapis.com iam.googleapis.com logging.googleapis.com monitoring.googleapis.com
 
 echo "== Network: own VPC instead of 'default', so only the rules below exist"
+have gcloud compute networks describe "$NETWORK" || \
 gcloud compute networks create "$NETWORK" --subnet-mode=custom
+have gcloud compute networks subnets describe "$SUBNET" --region="$REGION" || \
 gcloud compute networks subnets create "$SUBNET" --network="$NETWORK" --region="$REGION" \
     --range=10.10.0.0/24 --enable-private-ip-google-access
 
 echo "== Firewall (deny by default; each rule opens one path)"
+have gcloud compute firewall-rules describe dressing-allow-ssh-admin || \
 gcloud compute firewall-rules create dressing-allow-ssh-admin --network="$NETWORK" \
     --direction=INGRESS --action=ALLOW --rules=tcp:22 --source-ranges="$MY_IP" --target-tags=dressing-app
+have gcloud compute firewall-rules describe dressing-allow-ssh-iap || \
 gcloud compute firewall-rules create dressing-allow-ssh-iap --network="$NETWORK" \
     --direction=INGRESS --action=ALLOW --rules=tcp:22 --source-ranges=35.235.240.0/20 --target-tags=dressing-app,dressing-db
+have gcloud compute firewall-rules describe dressing-allow-web || \
 gcloud compute firewall-rules create dressing-allow-web --network="$NETWORK" \
     --direction=INGRESS --action=ALLOW --rules=tcp:80,tcp:443 --source-ranges=0.0.0.0/0 --target-tags=dressing-app
+have gcloud compute firewall-rules describe dressing-allow-pg-from-app || \
 gcloud compute firewall-rules create dressing-allow-pg-from-app --network="$NETWORK" \
     --direction=INGRESS --action=ALLOW --rules=tcp:5432 --source-tags=dressing-app --target-tags=dressing-db
+have gcloud compute firewall-rules describe dressing-allow-ssh-jump || \
 gcloud compute firewall-rules create dressing-allow-ssh-jump --network="$NETWORK" \
     --direction=INGRESS --action=ALLOW --rules=tcp:22 --source-tags=dressing-app --target-tags=dressing-db
 
 echo "== Cloud NAT: the DB VM has no public IP but still needs apt updates"
+have gcloud compute routers describe dressing-router --region="$REGION" || \
 gcloud compute routers create dressing-router --network="$NETWORK" --region="$REGION"
+have gcloud compute routers nats describe dressing-nat --router=dressing-router --region="$REGION" || \
 gcloud compute routers nats create dressing-nat --router=dressing-router --region="$REGION" \
     --auto-allocate-nat-external-ips --nat-all-subnet-ip-ranges
 
 echo "== One cloud service account per VM (least privilege; never the default compute SA)"
 for vm in app db; do
-    gcloud iam service-accounts create "sa-dressing-$vm" --display-name="Dressing $vm VM"
+    sa="sa-dressing-$vm@$PROJECT.iam.gserviceaccount.com"
+    have gcloud iam service-accounts describe "$sa" || \
+        gcloud iam service-accounts create "sa-dressing-$vm" --display-name="Dressing $vm VM"
+    # A new service account takes a few seconds to become visible to IAM.
+    for _ in $(seq 1 12); do have gcloud iam service-accounts describe "$sa" && break; sleep 5; done
+    sleep 10
     for role in roles/logging.logWriter roles/monitoring.metricWriter; do
         gcloud projects add-iam-policy-binding "$PROJECT" --condition=None \
-            --member="serviceAccount:sa-dressing-$vm@$PROJECT.iam.gserviceaccount.com" --role="$role"
+            --member="serviceAccount:sa-dressing-$vm@$PROJECT.iam.gserviceaccount.com" --role="$role" --format=none && echo "  $vm -> $role"
     done
 done
 
 echo "== VMs (Debian 13). e2-micro + pd-standard: one of them can fall under the free tier."
+have gcloud compute instances describe dressing-db --zone="$ZONE" || \
 gcloud compute instances create dressing-db --zone="$ZONE" --machine-type=e2-micro \
     --subnet="$SUBNET" --no-address --private-network-ip=10.10.0.20 \
     --image-family=debian-13 --image-project=debian-cloud \
@@ -55,6 +73,7 @@ gcloud compute instances create dressing-db --zone="$ZONE" --machine-type=e2-mic
     --service-account="sa-dressing-db@$PROJECT.iam.gserviceaccount.com" --scopes=cloud-platform \
     --tags=dressing-db --shielded-secure-boot --deletion-protection
 
+have gcloud compute instances describe dressing-app --zone="$ZONE" || \
 gcloud compute instances create dressing-app --zone="$ZONE" --machine-type=e2-micro \
     --subnet="$SUBNET" --private-network-ip=10.10.0.10 \
     --image-family=debian-13 --image-project=debian-cloud \
