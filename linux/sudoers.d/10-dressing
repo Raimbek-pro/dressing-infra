@@ -1,20 +1,14 @@
-# /etc/sudoers.d/10-dressing -- installed by 20_permissions.sh after a visudo check
+Defaults  env_reset
+Defaults  secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Defaults  logfile="/var/log/sudo.log"
 
-Defaults    env_reset
-Defaults    secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-Defaults    logfile="/var/log/sudo.log"
+Cmnd_Alias  APP = /usr/bin/systemctl start dressing-api, /usr/bin/systemctl stop dressing-api, \
+                  /usr/bin/systemctl restart dressing-api, /usr/bin/systemctl status dressing-api
+Cmnd_Alias  DB  = /usr/bin/systemctl restart postgresql, /usr/bin/systemctl status postgresql
 
-Cmnd_Alias  APP_SVC  = /usr/bin/systemctl start dressing-api, \
-                       /usr/bin/systemctl stop dressing-api, \
-                       /usr/bin/systemctl restart dressing-api, \
-                       /usr/bin/systemctl status dressing-api
-Cmnd_Alias  PG_SVC   = /usr/bin/systemctl restart postgresql, \
-                       /usr/bin/systemctl status postgresql
-
-%sysadmins      ALL=(ALL:ALL) ALL                       # everything, with own password
-%devops         ALL=(root) APP_SVC                      # operate the app
-automation_bot  ALL=(root) NOPASSWD: APP_SVC            # same, no password (key-only bot)
-%developers     ALL=(root) /usr/bin/systemctl status dressing-api   # look only
-%dba            ALL=(postgres) /usr/bin/psql            # database shell as postgres
-%dba            ALL=(root) PG_SVC                       # restart the database
-# auditors: no sudo at all; they read logs through the systemd-journal and adm groups
+%sysadmins      ALL=(ALL:ALL) ALL
+%devops         ALL=(root) APP
+automation_bot  ALL=(root) NOPASSWD: APP
+%developers     ALL=(root) /usr/bin/systemctl status dressing-api
+%dba            ALL=(postgres) /usr/bin/psql
+%dba            ALL=(root) DB
