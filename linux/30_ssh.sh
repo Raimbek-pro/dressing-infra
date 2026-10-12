@@ -17,16 +17,11 @@ chmod 0600 "$auth"
 cat >/etc/ssh/sshd_config.d/10-dressing.conf <<'EOF'
 PermitRootLogin no
 PasswordAuthentication no
-KbdInteractiveAuthentication no
 PubkeyAuthentication yes
-MaxAuthTries 3
-LoginGraceTime 30
-X11Forwarding no
-# Only these groups may log in at all; service accounts (dressing, postgres) never can.
-# google-sudoers keeps the GCP console "SSH" button working for the project admin.
+# Only these groups may log in; service accounts never can. google-sudoers keeps the console SSH button working.
 AllowGroups sysadmins devops developers dba auditors automation google-sudoers
 EOF
 
 sshd -t                      # validate before reload so we can't lock ourselves out
 systemctl reload ssh
-sshd -T | grep -Ei '^(permitrootlogin|passwordauthentication|allowgroups|maxauthtries)'
+sshd -T | grep -Ei '^(permitrootlogin|passwordauthentication|allowgroups)'

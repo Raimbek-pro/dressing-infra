@@ -159,16 +159,16 @@ table(["Role (group / user)", "Description", "Permissions", "Superuser permissio
     ["sysadmins / sysadmin1", "System administrator", "Own home; member of adm (reads /var/log)",
      "ALL, with own password every time (5-minute cache)"],
     ["devops / devops1", "Operates the backend and web server", "Own home; member of developers",
-     "systemctl start|stop|restart|status dressing-api; systemctl reload nginx; nginx -t"],
+     "systemctl start|stop|restart|status dressing-api"],
     ["developers / developer1", "Backend developer", "Own home only", "systemctl status dressing-api"],
-    ["dba / dba1", "Database administrator", "DB role dba1 (schema owner, peer auth)",
-     "psql, pg_dump as user postgres; restart/status postgresql"],
+    ["dba / dba1", "Database administrator", "Own home",
+     "psql as user postgres; systemctl restart|status postgresql"],
     ["auditors / auditor1", "Security auditor, read-only", "systemd-journal + adm groups (reads all logs)",
-     "NOPASSWD, NOEXEC: cat /var/log/sudo.log, sudo -l -U <user>"],
+     "None: reading logs needs no sudo"],
     ["automation / automation_bot", "CI/CD and Ansible; SSH key only, no password",
      "Member of devops", "NOPASSWD: systemctl start|stop|restart|status dressing-api"],
-    ["dressing (service)", "Runs the backend API", "Read /opt/dressing, /etc/dressing; write only /var/lib/dressing",
-     "None; also blocked by systemd sandboxing (NoNewPrivileges, ProtectSystem=strict)"],
+    ["dressing (service)", "Runs the backend API", "Read /opt/dressing and /etc/dressing; cannot log in",
+     "None; systemd also blocks it from gaining rights (NoNewPrivileges) or writing system files (ProtectSystem)"],
     ["postgres (service)", "Runs PostgreSQL (created by the package)", "Owns /var/lib/postgresql (0700) and /etc/postgresql",
      "None. DB superuser inside PostgreSQL, reachable only through the local socket (peer auth)"],
     ["www-data (service)", "Runs nginx workers (created by the package)", "Read site config; no write access to the app",
@@ -177,12 +177,9 @@ table(["Role (group / user)", "Description", "Permissions", "Superuser permissio
 ])
 p("Database roles (inside PostgreSQL, same group/user idea):")
 table(["Role", "Login", "Privileges"], [
-    ["dressing_owner", "no", "Owns database dressing and schema app; runs migrations (DDL)"],
-    ["dressing_readwrite", "no", "SELECT, INSERT, UPDATE, DELETE on app tables; sequences"],
-    ["dressing_readonly", "no", "SELECT on app tables (analytics, auditors)"],
-    ["dressing_app", "yes, SCRAM password, max 20 connections", "Member of dressing_readwrite; only from 10.10.0.10 over TLS"],
-    ["dba1", "yes, peer (OS user dba1 only)", "Member of dressing_owner"],
-    ["postgres", "yes, peer, local socket only", "Superuser"],
+    ["dressing_owner", "no", "Owns database dressing, schema app and its tables"],
+    ["dressing_app", "yes, SCRAM password", "SELECT, INSERT, UPDATE, DELETE on rows; cannot create or drop tables; only from 10.10.0.10 over TLS"],
+    ["postgres", "yes, peer, local socket only", "Superuser (DBAs reach it via sudo -u postgres psql)"],
 ])
 
 # ---------------------------------------------------------------- task 2
@@ -200,9 +197,8 @@ doc.add_heading("3. File and sudoers permissions", level=1)
 table(["Path", "Owner:group", "Mode", "Reason"], [
     ["/opt/dressing", "root:dressing", "0750", "Code: the service can run it but not modify itself"],
     ["/etc/dressing/dressing.env", "root:dressing", "0640", "DATABASE_URL secret: only root writes, only the service reads"],
-    ["/var/lib/dressing", "dressing:dressing", "0750", "The only directory the service may write"],
     ["/etc/sudoers.d/10-dressing", "root:root", "0440", "Sudo policy, validated with visudo -c before install"],
-    ["/var/log/sudo.log", "root:root", "0600", "Every sudo call; readable by auditors only through sudo"],
+    ["/var/log/sudo.log", "root:root", "0600", "Every sudo call is recorded here"],
 ])
 p("The sudo policy is placed in /etc/sudoers.d instead of editing /etc/sudoers, and is "
   "checked with visudo before it is installed. Command aliases keep it readable. Every "
@@ -239,7 +235,7 @@ screenshot("password login refused: ssh -o PubkeyAuthentication=no automation_bo
 doc.add_heading("5. PostgreSQL configuration", level=1)
 p("PostgreSQL 17 from Debian. Our settings go into conf.d so package upgrades do not "
   "conflict with them. listen_addresses includes only localhost and the private IP. "
-  "Passwords use SCRAM-SHA-256, connections use TLS, and memory is sized for a 1 GB VM.")
+  "Passwords use SCRAM-SHA-256 and connections use TLS.")
 file("db/postgresql.d/10-dressing.conf")
 p("pg_hba.conf decides who may connect from where; the first matching line wins and "
   "everything else is rejected:")
@@ -252,7 +248,7 @@ doc.add_heading("6. The backend as a systemd unit", level=1)
 p("The service is a small Python API (app/dressing_api.py) that answers /health by running "
   "SELECT 1 on the database VM. It listens on 127.0.0.1:8080; nginx (www-data) is the only "
   "process exposed to the internet. The unit runs as the dressing user with systemd "
-  "sandboxing and is enabled, so it starts at every boot.")
+  "protection (NoNewPrivileges, ProtectSystem) and is enabled, so it starts at every boot.")
 file("app/dressing-api.service")
 code("sudo systemctl enable --now dressing-api\nsudo reboot\ncurl http://<app external IP>/health   # {\"status\": \"ok\", \"db\": \"ok\"}")
 screenshot("systemctl status dressing-api after reboot (enabled; active (running))")
@@ -268,7 +264,7 @@ bullets([
     "the phone. Generating the 3D models is the first job that would justify a third machine.",
 ])
 p("Scaling path, without redesigning: Cloud Storage plus Cloud CDN for photos and models; a "
-  "PostgreSQL streaming replica (wal_level = replica is already set) or a move to Cloud SQL; "
+  "PostgreSQL replica or a move to Cloud SQL; "
   "several app VMs behind a load balancer (the API is stateless); secrets moved from the env "
   "file to Secret Manager; OS Login so Linux accounts follow Google Cloud IAM automatically.")
 

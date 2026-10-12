@@ -1,25 +1,16 @@
 # /etc/systemd/system/dressing-api.service
 [Unit]
 Description=Dressing backend API
-Wants=network-online.target
 After=network-online.target
+Wants=network-online.target
 
 [Service]
-Type=simple
 User=dressing
-Group=dressing
 EnvironmentFile=/etc/dressing/dressing.env
-WorkingDirectory=/opt/dressing
 ExecStart=/usr/bin/python3 /opt/dressing/dressing_api.py
 Restart=on-failure
-RestartSec=3
-
-# Sandboxing: the service can write only its own state directory.
 NoNewPrivileges=yes
 ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-ReadWritePaths=/var/lib/dressing
 
 [Install]
 WantedBy=multi-user.target

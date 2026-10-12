@@ -1,40 +1,20 @@
-# /etc/sudoers.d/10-dressing  -- installed by 20_permissions.sh, always validated with visudo -c
-# Least privilege: each group gets exactly the commands its job needs.
+# /etc/sudoers.d/10-dressing -- installed by 20_permissions.sh after a visudo check
 
 Defaults    env_reset
-Defaults    !visiblepw
-Defaults    use_pty
 Defaults    secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Defaults    logfile="/var/log/sudo.log"
-Defaults    timestamp_timeout=5
 
-# ---- command aliases ----------------------------------------------------------------
-Cmnd_Alias  APP_SVC   = /usr/bin/systemctl start dressing-api, \
-                        /usr/bin/systemctl stop dressing-api, \
-                        /usr/bin/systemctl restart dressing-api, \
-                        /usr/bin/systemctl status dressing-api
-Cmnd_Alias  WEB_SVC   = /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t
-Cmnd_Alias  PG_SVC    = /usr/bin/systemctl restart postgresql, \
-                        /usr/bin/systemctl status postgresql
-Cmnd_Alias  PG_TOOLS  = /usr/bin/psql, /usr/bin/pg_dump
-Cmnd_Alias  AUDIT     = /usr/bin/cat /var/log/sudo.log, /usr/bin/sudo -l -U *
+Cmnd_Alias  APP_SVC  = /usr/bin/systemctl start dressing-api, \
+                       /usr/bin/systemctl stop dressing-api, \
+                       /usr/bin/systemctl restart dressing-api, \
+                       /usr/bin/systemctl status dressing-api
+Cmnd_Alias  PG_SVC   = /usr/bin/systemctl restart postgresql, \
+                       /usr/bin/systemctl status postgresql
 
-# ---- rules ---------------------------------------------------------------------------
-# Administrators: everything, with their own password.
-%sysadmins    ALL=(ALL:ALL) ALL
-
-# DevOps: operate the app and the web server, no root shell.
-%devops       ALL=(root) APP_SVC, WEB_SVC
-
-# Automation bot: control the app, no password (it has none; SSH key only).
-automation_bot ALL=(root) NOPASSWD: APP_SVC
-
-# Developers: may only look at the service.
-%developers   ALL=(root) /usr/bin/systemctl status dressing-api
-
-# DBA: database tools as the postgres user, service control as root.
-%dba          ALL=(postgres) PG_TOOLS
-%dba          ALL=(root) PG_SVC
-
-# Auditors: read the sudo log, list anyone's sudo rights. Logs via the systemd-journal group.
-%auditors     ALL=(root) NOPASSWD: NOEXEC: AUDIT
+%sysadmins      ALL=(ALL:ALL) ALL                       # everything, with own password
+%devops         ALL=(root) APP_SVC                      # operate the app
+automation_bot  ALL=(root) NOPASSWD: APP_SVC            # same, no password (key-only bot)
+%developers     ALL=(root) /usr/bin/systemctl status dressing-api   # look only
+%dba            ALL=(postgres) /usr/bin/psql            # database shell as postgres
+%dba            ALL=(root) PG_SVC                       # restart the database
+# auditors: no sudo at all; they read logs through the systemd-journal and adm groups
